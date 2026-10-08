@@ -1,0 +1,39 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: AetherMagee <aetherthecatboy@gmail.com>
+Date: Fri, 9 Oct 2026 01:49:14 +0300
+Subject: [PATCH] netns: set Android's protected-from-VPN bit on bypass sockets
+
+---
+ net/netns/netns_linux.go | 11 ++++++++++-
+ 1 file changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/net/netns/netns_linux.go b/net/netns/netns_linux.go
+index c9ea740..21c89f2 100644
+--- a/net/netns/netns_linux.go
++++ b/net/netns/netns_linux.go
+@@ -19,6 +19,7 @@
+ 	"tailscale.com/net/netmon"
+ 	"tailscale.com/tsconst"
+ 	"tailscale.com/types/logger"
++	"tailscale.com/version/distro"
+ )
+ 
+ // socketMarkWorksOnce is the sync.Once & cached value for useSocketMark.
+@@ -112,8 +113,16 @@ func controlC(network, address string, c syscall.RawConn) error {
+ 	return sockErr
+ }
+ 
++// androidProtectedFromVPNMark is netd's ProtectedFromVpn bit (Fwmark.h).
++// Without it, Android VPN apps' uidrange rules capture tailscaled's own traffic.
++const androidProtectedFromVPNMark = 0x20000
++
+ func setBypassMark(fd uintptr) error {
+-	if err := unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_MARK, tsconst.LinuxBypassMarkNum); err != nil {
++	mark := tsconst.LinuxBypassMarkNum
++	if distro.Get() == distro.Android {
++		mark |= androidProtectedFromVPNMark
++	}
++	if err := unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_MARK, mark); err != nil {
+ 		return fmt.Errorf("setting SO_MARK bypass: %w", err)
+ 	}
+ 	return nil

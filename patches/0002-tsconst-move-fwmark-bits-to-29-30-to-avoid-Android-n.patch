@@ -1,0 +1,55 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: AetherMagee <aetherthecatboy@gmail.com>
+Date: Fri, 9 Oct 2026 01:45:23 +0300
+Subject: [PATCH] tsconst: move fwmark bits to 29-30 to avoid Android netd and
+ MaterialXray
+
+---
+ tsconst/linuxfw.go              | 16 ++++++++++------
+ util/linuxfw/iptables_runner.go |  2 +-
+ 2 files changed, 11 insertions(+), 7 deletions(-)
+
+diff --git a/tsconst/linuxfw.go b/tsconst/linuxfw.go
+index 3a7a4cf..ac1f3dc 100644
+--- a/tsconst/linuxfw.go
++++ b/tsconst/linuxfw.go
+@@ -28,16 +28,20 @@
+ 	//
+ 	// We claim bits 16:23 entirely. For now we only use the lower four
+ 	// bits, leaving the higher 4 bits for future use.
+-	LinuxFwmarkMask    = "0xff0000"
+-	LinuxFwmarkMaskNum = 0xff0000
++	//
++	// android-tailscaled: on Android, bits 0-20 belong to netd (Fwmark.h)
++	// and MaterialXray's TPROXY mode claims bits 21-28 (0x1fe00000), so we
++	// move to bits 29-30 instead.
++	LinuxFwmarkMask    = "0x60000000"
++	LinuxFwmarkMaskNum = 0x60000000
+ 
+ 	// Packet is from Tailscale and to a subnet route destination, so
+ 	// is allowed to be routed through this machine.
+-	LinuxSubnetRouteMark    = "0x40000"
+-	LinuxSubnetRouteMarkNum = 0x40000
++	LinuxSubnetRouteMark    = "0x20000000"
++	LinuxSubnetRouteMarkNum = 0x20000000
+ 
+ 	// Packet was originated by tailscaled itself, and must not be
+ 	// routed over the Tailscale network.
+-	LinuxBypassMark    = "0x80000"
+-	LinuxBypassMarkNum = 0x80000
++	LinuxBypassMark    = "0x40000000"
++	LinuxBypassMarkNum = 0x40000000
+ )
+diff --git a/util/linuxfw/iptables_runner.go b/util/linuxfw/iptables_runner.go
+index ad983fb..5eeff57 100644
+--- a/util/linuxfw/iptables_runner.go
++++ b/util/linuxfw/iptables_runner.go
+@@ -548,7 +548,7 @@ func (i *iptablesRunner) AddConnmarkSaveRule() error {
+ 		for _, rule := range rules {
+ 			if strings.Contains(rule, "CONNMARK") &&
+ 				strings.Contains(rule, "restore-mark") &&
+-				strings.Contains(rule, "ctmask 0xff0000") {
++				strings.Contains(rule, "ctmask "+fwmarkMask) {
+ 				// Rules already exist, skip adding
+ 				return nil
+ 			}

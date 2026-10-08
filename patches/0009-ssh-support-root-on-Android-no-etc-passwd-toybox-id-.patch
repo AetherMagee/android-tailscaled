@@ -1,0 +1,101 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: AetherMagee <aetherthecatboy@gmail.com>
+Date: Fri, 9 Oct 2026 02:23:12 +0300
+Subject: [PATCH] ssh: support root on Android (no /etc/passwd, toybox id,
+ Android PATH)
+
+---
+ ssh/tailssh/c2n.go       |  8 ++++++++
+ ssh/tailssh/user_unix.go |  3 +++
+ util/osuser/group_ids.go |  2 +-
+ util/osuser/user.go      | 18 ++++++++++++++++++
+ 4 files changed, 30 insertions(+), 1 deletion(-)
+
+diff --git a/ssh/tailssh/c2n.go b/ssh/tailssh/c2n.go
+index f458df2..5479d24 100644
+--- a/ssh/tailssh/c2n.go
++++ b/ssh/tailssh/c2n.go
+@@ -17,12 +17,20 @@
+ 	"tailscale.com/ipn/ipnlocal"
+ 	"tailscale.com/tailcfg"
+ 	"tailscale.com/util/lineiter"
++	"tailscale.com/version/distro"
+ )
+ 
+ // hookLocalUsernames, if non-nil, lists the local user accounts on
+ // platforms without /etc/passwd. It is set by platform-specific code.
+ var hookLocalUsernames func() ([]string, error)
+ 
++func init() {
++	// android-tailscaled: no /etc/passwd; root is the only supported user.
++	if distro.Get() == distro.Android {
++		hookLocalUsernames = func() ([]string, error) { return []string{"root"}, nil }
++	}
++}
++
+ func handleC2NSSHUsernames(b *ipnlocal.LocalBackend, w http.ResponseWriter, r *http.Request) {
+ 	var req tailcfg.C2NSSHUsernamesRequest
+ 	if r.Method == "POST" {
+diff --git a/ssh/tailssh/user_unix.go b/ssh/tailssh/user_unix.go
+index eb19418..8d50ab5 100644
+--- a/ssh/tailssh/user_unix.go
++++ b/ssh/tailssh/user_unix.go
+@@ -92,6 +92,9 @@ func defaultPathForUser(u *user.User) string {
+ 		return "/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games"
+ 	case distro.NixOS:
+ 		return defaultPathForUserOnNixOS(u)
++	case distro.Android:
++		// Same as Android's own shell PATH.
++		return "/product/bin:/apex/com.android.runtime/bin:/apex/com.android.art/bin:/system_ext/bin:/system/bin:/system/xbin:/odm/bin:/vendor/bin:/vendor/xbin"
+ 	}
+ 	if isRoot {
+ 		return "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+diff --git a/util/osuser/group_ids.go b/util/osuser/group_ids.go
+index 34d15c9..23ba6a2 100644
+--- a/util/osuser/group_ids.go
++++ b/util/osuser/group_ids.go
+@@ -46,7 +46,7 @@ func getGroupIdsWithId(usernameOrUID string) ([]string, error) {
+ 	defer cancel()
+ 
+ 	cmd := exec.CommandContext(ctx, "id", "-Gz", usernameOrUID)
+-	if runtime.GOOS == "freebsd" {
++	if runtime.GOOS == "freebsd" || distro.Get() == distro.Android { // toybox id has no -z
+ 		cmd = exec.CommandContext(ctx, "id", "-G", usernameOrUID)
+ 	}
+ 
+diff --git a/util/osuser/user.go b/util/osuser/user.go
+index 3fdbfbb..4cdfaab 100644
+--- a/util/osuser/user.go
++++ b/util/osuser/user.go
+@@ -50,6 +50,9 @@ func LookupByUsername(username string) (*user.User, error) {
+ 	return u, err
+ }
+ 
++// AndroidRootHome is root's home directory for SSH sessions on Android.
++const AndroidRootHome = "/data/adb/tailscale/home"
++
+ // lookupStd is either user.Lookup or user.LookupId.
+ type lookupStd func(string) (*user.User, error)
+ 
+@@ -106,6 +109,21 @@ func lookup(usernameOrUID string, std lookupStd, wantShell bool) (*user.User, st
+ 		}, "/bin/rc", nil
+ 	}
+ 
++	// android-tailscaled: Android has no /etc/passwd or getent. Only root is
++	// supported as an SSH user.
++	if distro.Get() == distro.Android {
++		if usernameOrUID == "root" || usernameOrUID == "0" {
++			return &user.User{
++				Uid:      "0",
++				Gid:      "0",
++				Username: "root",
++				Name:     "root",
++				HomeDir:  AndroidRootHome,
++			}, "/system/bin/sh", nil
++		}
++		return nil, "", user.UnknownUserError(usernameOrUID)
++	}
++
+ 	// Start with getent if caller wants to get the user shell.
+ 	if wantShell {
+ 		return userLookupGetent(usernameOrUID, std)

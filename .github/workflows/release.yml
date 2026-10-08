@@ -1,0 +1,80 @@
+name: Release
+
+on:
+  schedule:
+    - cron: "0 6 * * *" # daily: pick up new upstream releases
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Upstream tailscale tag (default latest release)
+        required: false
+  push:
+    branches: [main]
+    paths: [REVISION] # bump REVISION to release module-only changes
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency: release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: v
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          tag="$INPUT_TAG"
+          [ -n "$tag" ] || tag=$(gh api repos/tailscale/tailscale/releases/latest --jq .tag_name)
+          version="$tag-r$(cat REVISION)"
+          echo "tag=$tag" >>"$GITHUB_OUTPUT"
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+          if gh release view "$version" >/dev/null 2>&1; then
+            echo "$version already released"
+            echo "skip=true" >>"$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-go@v5
+        if: steps.v.outputs.skip != 'true'
+        with:
+          go-version: stable
+          cache: false
+
+      - name: Build
+        if: steps.v.outputs.skip != 'true'
+        run: ./build.sh "${{ steps.v.outputs.tag }}"
+
+      - name: Report broken patches
+        if: failure()
+        run: |
+          title="Build failed for tailscale ${{ steps.v.outputs.tag }}"
+          if [ -z "$(gh issue list --state open --search "in:title \"$title\"" --json number --jq '.[].number')" ]; then
+            gh issue create --title "$title" --body "Patches may need rebasing. Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          fi
+
+      - name: Publish
+        if: steps.v.outputs.skip != 'true'
+        run: |
+          . dist/build.env
+          gh release create "$VERSION" "$ZIP" --title "$VERSION" \
+            --notes "Upstream tailscale [$TAG](https://github.com/tailscale/tailscale/releases/tag/$TAG) + patches/ (module revision $(cat REVISION))."
+          cat >update.json <<EOF
+          {
+            "version": "$VERSION",
+            "versionCode": $VERSION_CODE,
+            "zipUrl": "${{ github.server_url }}/${{ github.repository }}/releases/download/$VERSION/$(basename "$ZIP")",
+            "changelog": "https://raw.githubusercontent.com/${{ github.repository }}/main/CHANGELOG.md"
+          }
+          EOF
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add update.json
+          git commit -m "chore: release $VERSION"
+          for i in 1 2 3; do git pull --rebase -q && git push && break; sleep 5; done

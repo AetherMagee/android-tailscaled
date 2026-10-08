@@ -1,0 +1,39 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: AetherMagee <aetherthecatboy@gmail.com>
+Date: Fri, 9 Oct 2026 01:45:57 +0300
+Subject: [PATCH] paths: default socket and state under /data/adb/tailscale on
+ Android
+
+---
+ paths/paths.go      | 3 +++
+ paths/paths_unix.go | 3 +++
+ 2 files changed, 6 insertions(+)
+
+diff --git a/paths/paths.go b/paths/paths.go
+index 77605a1..3256c11 100644
+--- a/paths/paths.go
++++ b/paths/paths.go
+@@ -81,6 +81,9 @@ func DefaultTailscaledSocket() string {
+ 		return "/perm/tailscaled/tailscaled.sock"
+ 	case distro.QNAP:
+ 		return "/tmp/tailscale/tailscaled.sock"
++	case distro.Android:
++		// android-tailscaled: root-only, shared by the daemon and the CLI.
++		return "/data/adb/tailscale/tailscaled.sock"
+ 	}
+ 	if fi, err := os.Stat("/var/run"); err == nil && fi.IsDir() {
+ 		return "/var/run/tailscale/tailscaled.sock"
+diff --git a/paths/paths_unix.go b/paths/paths_unix.go
+index b1556b2..07df853 100644
+--- a/paths/paths_unix.go
++++ b/paths/paths_unix.go
+@@ -24,6 +24,9 @@ func statePath() string {
+ 	if runtime.GOOS == "linux" && distro.Get() == distro.JetKVM {
+ 		return "/userdata/tailscale/var/tailscaled.state"
+ 	}
++	if runtime.GOOS == "linux" && distro.Get() == distro.Android {
++		return "/data/adb/tailscale/tailscaled.state"
++	}
+ 	switch runtime.GOOS {
+ 	case "linux", "illumos", "solaris":
+ 		return "/var/lib/tailscale/tailscaled.state"

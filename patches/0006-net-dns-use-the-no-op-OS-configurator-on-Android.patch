@@ -1,0 +1,25 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: AetherMagee <aetherthecatboy@gmail.com>
+Date: Fri, 9 Oct 2026 01:46:02 +0300
+Subject: [PATCH] net/dns: use the no-op OS configurator on Android
+
+---
+ net/dns/manager_linux.go | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/net/dns/manager_linux.go b/net/dns/manager_linux.go
+index 392b64b..e6c3d98 100644
+--- a/net/dns/manager_linux.go
++++ b/net/dns/manager_linux.go
+@@ -65,7 +65,10 @@ func (kv kv) String() string {
+ //
+ // The health tracker may be nil; the knobs may be nil and are ignored on this platform.
+ func NewOSConfigurator(logf logger.Logf, health *health.Tracker, bus *eventbus.Bus, _ policyclient.Client, _ *controlknobs.Knobs, interfaceName string) (ret OSConfigurator, err error) {
+-	if !buildfeatures.HasDNS || distro.Get() == distro.JetKVM {
++	// android-tailscaled: Android has no resolv.conf and resolves through
++	// netd, so there is no OS DNS config for us to manage. MagicDNS at
++	// 100.100.100.100 keeps working for anything that queries it directly.
++	if !buildfeatures.HasDNS || distro.Get() == distro.JetKVM || distro.Get() == distro.Android {
+ 		return NewNoopManager()
+ 	}
+ 

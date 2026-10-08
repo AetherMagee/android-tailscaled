@@ -1,0 +1,48 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: AetherMagee <aetherthecatboy@gmail.com>
+Date: Fri, 9 Oct 2026 01:45:51 +0300
+Subject: [PATCH] osrouter: use fallthrough ip rules on Android, add
+ TS_IP_POLICY_PREF_BASE
+
+---
+ wgengine/router/osrouter/router_linux.go | 20 +++++++++++++++++++-
+ 1 file changed, 19 insertions(+), 1 deletion(-)
+
+diff --git a/wgengine/router/osrouter/router_linux.go b/wgengine/router/osrouter/router_linux.go
+index c8b31d0..b345640 100644
+--- a/wgengine/router/osrouter/router_linux.go
++++ b/wgengine/router/osrouter/router_linux.go
+@@ -189,6 +189,18 @@ func newUserspaceRouterAdvanced(logf logger.Logf, tunname string, netMon *netmon
+ 		r.logf("mwan3 on openWRT detected, switching policy base priority to 1300")
+ 	}
+ 
++	// android-tailscaled: let the module pick where our rules sit relative to
++	// other policy routing (e.g. MaterialXray's TPROXY rule at 9990, Android
++	// VPN rules at 11000-13000).
++	if base := envknob.String("TS_IP_POLICY_PREF_BASE"); base != "" {
++		if n, err := strconv.Atoi(base); err == nil && n > 0 {
++			r.ipPolicyPrefBase = n
++			r.logf("TS_IP_POLICY_PREF_BASE set, using policy base priority %d", n)
++		} else {
++			r.logf("ignoring invalid TS_IP_POLICY_PREF_BASE %q", base)
++		}
++	}
++
+ 	r.fixupWSLMTU()
+ 
+ 	return r, nil
+@@ -1649,7 +1661,13 @@ func mustRouteTable(num int) RouteTable {
+ // ipRules returns the appropriate list of ip rules to be used by Tailscale. See
+ // comments on baseIPRules and ubntIPRules for more details.
+ func ipRules() []netlink.Rule {
+-	if getDistroFunc() == distro.UBNT {
++	switch getDistroFunc() {
++	case distro.UBNT:
++		return ubntIPRules
++	case distro.Android:
++		// android-tailscaled: Android keeps its default routes in per-network
++		// tables, not main, so baseIPRules would make our own traffic
++		// unreachable. Let bypass-marked packets fall through to netd's rules.
+ 		return ubntIPRules
+ 	}
+ 	return baseIPRules

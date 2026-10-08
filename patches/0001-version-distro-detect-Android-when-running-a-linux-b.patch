@@ -1,0 +1,30 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: AetherMagee <aetherthecatboy@gmail.com>
+Date: Fri, 9 Oct 2026 01:45:03 +0300
+Subject: [PATCH] version/distro: detect Android when running a linux binary
+
+---
+ version/distro/distro.go | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/version/distro/distro.go b/version/distro/distro.go
+index 5407f8d..da0860e 100644
+--- a/version/distro/distro.go
++++ b/version/distro/distro.go
+@@ -34,6 +34,7 @@
+ 	Alpine    = Distro("alpine")
+ 	UBNT      = Distro("ubnt") // Ubiquiti Networks
+ 	JetKVM    = Distro("jetkvm")
++	Android   = Distro("android") // GOOS=linux binary running on an Android kernel (rooted shell)
+ )
+ 
+ var distro lazy.SyncValue[Distro]
+@@ -74,6 +75,8 @@ func haveDir(file string) bool {
+ 
+ func linuxDistro() Distro {
+ 	switch {
++	case have("/dev/__properties__"): // bionic property store; never present on regular Linux
++		return Android
+ 	case haveDir("/usr/syno"):
+ 		return Synology
+ 	case have("/usr/local/bin/freenas-debug"):

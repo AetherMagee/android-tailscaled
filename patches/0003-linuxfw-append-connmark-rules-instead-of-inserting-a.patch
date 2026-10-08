@@ -1,0 +1,44 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: AetherMagee <aetherthecatboy@gmail.com>
+Date: Fri, 9 Oct 2026 01:45:32 +0300
+Subject: [PATCH] linuxfw: append connmark rules instead of inserting at
+ position 1
+
+---
+ util/linuxfw/iptables_runner.go | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/util/linuxfw/iptables_runner.go b/util/linuxfw/iptables_runner.go
+index 5eeff57..cbdb0dd 100644
+--- a/util/linuxfw/iptables_runner.go
++++ b/util/linuxfw/iptables_runner.go
+@@ -555,6 +555,11 @@ func (i *iptablesRunner) AddConnmarkSaveRule() error {
+ 		}
+ 	}
+ 
++	// android-tailscaled: these are appended rather than inserted at position 1,
++	// because MaterialXray's TPROXY mode requires its guard to stay first in
++	// mangle/OUTPUT. The rules only touch Tailscale's own mark bits, so their
++	// position in the chain doesn't matter.
++	//
+ 	// mangle/PREROUTING: Restore mark from conntrack for ESTABLISHED/RELATED connections
+ 	// This runs BEFORE routing decision and rp_filter check
+ 	// The connmark check ensures we only restore when Tailscale has marked the connection,
+@@ -570,7 +575,7 @@ func (i *iptablesRunner) AddConnmarkSaveRule() error {
+ 			"--nfmask", fwmarkMask,
+ 			"--ctmask", fwmarkMask,
+ 		}
+-		if err := ipt.Insert("mangle", "PREROUTING", 1, args...); err != nil {
++		if err := ipt.Append("mangle", "PREROUTING", args...); err != nil {
+ 			return fmt.Errorf("adding %v in mangle/PREROUTING: %w", args, err)
+ 		}
+ 	}
+@@ -587,7 +592,7 @@ func (i *iptablesRunner) AddConnmarkSaveRule() error {
+ 			"--nfmask", fwmarkMask,
+ 			"--ctmask", fwmarkMask,
+ 		}
+-		if err := ipt.Insert("mangle", "OUTPUT", 1, args...); err != nil {
++		if err := ipt.Append("mangle", "OUTPUT", args...); err != nil {
+ 			return fmt.Errorf("adding %v in mangle/OUTPUT: %w", args, err)
+ 		}
+ 	}

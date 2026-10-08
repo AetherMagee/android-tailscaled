@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tailscale</title>
+<style>
+	:root {
+		--bg: #f4f4f6; --card: #fff; --fg: #18181b; --muted: #71717a; --line: #e4e4e7;
+		--accent: #2563eb; --ok: #16a34a; --warn: #d97706; --bad: #dc2626;
+		color-scheme: light dark;
+	}
+	@media (prefers-color-scheme: dark) {
+		:root { --bg: #0b0b0d; --card: #18181b; --fg: #f4f4f5; --muted: #a1a1aa; --line: #27272a; --accent: #60a5fa; }
+	}
+	* { box-sizing: border-box; }
+	body {
+		margin: 0; padding: max(16px, env(safe-area-inset-top)) 14px 40px;
+		font: 15px/1.4 system-ui, sans-serif; background: var(--bg); color: var(--fg);
+	}
+	h1 { font-size: 22px; margin: 4px 2px 14px; display: flex; align-items: center; gap: 10px; }
+	h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; }
+	.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin-bottom: 12px; }
+	.row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; }
+	.row + .row { border-top: 1px solid var(--line); }
+	.row .label small { display: block; color: var(--muted); font-size: 12px; }
+	.muted { color: var(--muted); }
+	.mono { font-family: ui-monospace, monospace; font-size: 13px; }
+	.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; background: var(--muted); flex: none; }
+	.dot.ok { background: var(--ok); } .dot.warn { background: var(--warn); } .dot.bad { background: var(--bad); }
+	.btns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+	button {
+		font: inherit; font-size: 14px; border: 1px solid var(--line); background: transparent; color: var(--fg);
+		padding: 8px 14px; border-radius: 10px;
+	}
+	button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+	button.danger { color: var(--bad); }
+	button.small { padding: 4px 10px; font-size: 13px; }
+	button:disabled { opacity: .5; }
+	input[type=text], input[type=number], select {
+		font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line);
+		border-radius: 8px; padding: 7px 9px; width: 100%;
+	}
+	.field { margin: 10px 0; }
+	.field label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+	.switch { position: relative; width: 44px; height: 26px; flex: none; }
+	.switch input { opacity: 0; width: 0; height: 0; }
+	.switch span { position: absolute; inset: 0; background: var(--line); border-radius: 13px; transition: .15s; }
+	.switch span::before { content: ""; position: absolute; width: 20px; height: 20px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: .15s; }
+	.switch input:checked + span { background: var(--accent); }
+	.switch input:checked + span::before { transform: translateX(18px); }
+	.peer { display: flex; align-items: center; gap: 10px; padding: 9px 0; }
+	.peer + .peer { border-top: 1px solid var(--line); }
+	.peer .info { flex: 1; min-width: 0; }
+	.peer .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.tag { font-size: 11px; padding: 1px 6px; border-radius: 6px; border: 1px solid var(--line); color: var(--muted); margin-left: 4px; }
+	.tabs { display: flex; gap: 6px; margin-bottom: 12px; overflow-x: auto; }
+	.tabs button.active { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+	pre { white-space: pre-wrap; word-break: break-all; margin: 0; max-height: 60vh; overflow: auto; }
+	#toast {
+		position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--fg); color: var(--bg);
+		padding: 9px 16px; border-radius: 10px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 90vw;
+	}
+	#toast.show { opacity: 1; }
+	.hidden { display: none !important; }
+	.health { color: var(--warn); font-size: 13px; margin-top: 6px; }
+</style>
+</head>
+<body>
+<h1><span class="dot" id="hdot"></span>Tailscale</h1>
+
+<div class="tabs">
+	<button data-tab="status" class="active">Status</button>
+	<button data-tab="peers">Devices</button>
+	<button data-tab="settings">Settings</button>
+	<button data-tab="daemon">Daemon</button>
+	<button data-tab="logs">Logs</button>
+</div>
+
+<section id="tab-status">
+	<div class="card">
+		<h2>This device</h2>
+		<div class="row"><div class="label">Daemon</div><div id="s-daemon" class="muted">…</div></div>
+		<div class="row"><div class="label">State</div><div id="s-state" class="muted">…</div></div>
+		<div class="row"><div class="label">Name</div><div id="s-name" class="mono">–</div></div>
+		<div class="row"><div class="label">IPv4</div><div id="s-ip4" class="mono">–</div></div>
+		<div class="row"><div class="label">IPv6</div><div id="s-ip6" class="mono">–</div></div>
+		<div class="row"><div class="label">Tailnet</div><div id="s-tailnet">–</div></div>
+		<div class="row"><div class="label">Relay</div><div id="s-relay">–</div></div>
+		<div class="row"><div class="label">Exit node</div><div id="s-exit">none</div></div>
+		<div class="row"><div class="label">Version</div><div id="s-version" class="mono">–</div></div>
+		<div id="s-health"></div>
+		<div class="btns">
+			<button class="primary" id="b-up">Connect</button>
+			<button id="b-down">Disconnect</button>
+			<button class="danger" id="b-logout">Log out</button>
+		</div>
+	</div>
+
+	<div class="card hidden" id="login-card">
+		<h2>Log in</h2>
+		<div id="login-url" class="muted">Press "Log in" to get a login link.</div>
+		<div class="btns">
+			<button class="primary" id="b-login">Log in</button>
+			<button id="b-open" class="hidden">Open link</button>
+		</div>
+		<div class="field">
+			<label>Or use an auth key</label>
+			<input type="text" id="authkey" placeholder="tskey-auth-…" autocomplete="off">
+		</div>
+		<button id="b-authkey">Log in with key</button>
+	</div>
+</section>
+
+<section id="tab-peers" class="hidden">
+	<div class="card">
+		<div class="row" style="padding-top:0">
+			<h2 style="margin:0">Devices</h2>
+			<label class="muted" style="font-size:13px"><input type="checkbox" id="p-offline"> show offline</label>
+		</div>
+		<div id="peers" class="muted">…</div>
+	</div>
+</section>
+
+<section id="tab-settings" class="hidden">
+	<div class="card">
+		<h2>Exit node</h2>
+		<div class="field">
+			<select id="exitnode"><option value="">None</option></select>
+		</div>
+		<div class="row">
+			<div class="label">Allow LAN access<small>Reach the local network while using an exit node</small></div>
+			<label class="switch"><input type="checkbox" data-pref="ExitNodeAllowLANAccess" data-flag="exit-node-allow-lan-access"><span></span></label>
+		</div>
+	</div>
+	<div class="card">
+		<h2>Preferences</h2>
+		<div class="row">
+			<div class="label">Accept routes<small>Use subnet routes advertised by other devices</small></div>
+			<label class="switch"><input type="checkbox" data-pref="RouteAll" data-flag="accept-routes"><span></span></label>
+		</div>
+		<div class="row">
+			<div class="label">Shields up<small>Block all incoming connections</small></div>
+			<label class="switch"><input type="checkbox" data-pref="ShieldsUp" data-flag="shields-up"><span></span></label>
+		</div>
+		<div class="row">
+			<div class="label">Tailscale SSH<small>Log in as root: ssh root@this-device</small></div>
+			<label class="switch"><input type="checkbox" data-pref="RunSSH" data-flag="ssh"><span></span></label>
+		</div>
+		<div class="field">
+			<label>Hostname</label>
+			<div style="display:flex;gap:8px">
+				<input type="text" id="hostname" autocomplete="off">
+				<button id="b-hostname">Save</button>
+			</div>
+		</div>
+	</div>
+</section>
+
+<section id="tab-daemon" class="hidden">
+	<div class="card">
+		<h2>Service</h2>
+		<div class="row"><div class="label">tailscaled</div><div id="d-status" class="muted">…</div></div>
+		<div class="btns">
+			<button class="primary" id="b-start">Start</button>
+			<button id="b-restart">Restart</button>
+			<button class="danger" id="b-stop">Stop</button>
+		</div>
+	</div>
+	<div class="card">
+		<h2>Daemon settings</h2>
+		<div class="muted" style="font-size:13px">Saved to /data/adb/tailscale/tailscaled.conf. Applied on restart.</div>
+		<div class="field">
+			<label>Mode</label>
+			<select id="c-tun">
+				<option value="tailscale0">Kernel TUN (tailscale0): all apps can reach the tailnet</option>
+				<option value="userspace-networking">Userspace: no routes, proxy only</option>
+			</select>
+		</div>
+		<div class="field">
+			<label>Routing priority</label>
+			<select id="c-pref">
+				<option value="9999">9999: after TPROXY proxies, before Android and VPN apps</option>
+				<option value="5270">5270: Tailscale before everything (upstream default)</option>
+				<option value="custom">Custom…</option>
+			</select>
+			<input type="number" id="c-pref-custom" class="hidden" style="margin-top:6px" placeholder="e.g. 9999">
+		</div>
+		<div class="field">
+			<label>WireGuard UDP port (0 = random)</label>
+			<input type="number" id="c-port">
+		</div>
+		<div class="field">
+			<label>Extra tailscaled flags</label>
+			<input type="text" id="c-extra" class="mono" placeholder="--socks5-server=localhost:1055" autocomplete="off">
+		</div>
+		<div class="btns"><button class="primary" id="b-saveconf">Save and restart</button></div>
+	</div>
+</section>
+
+<section id="tab-logs" class="hidden">
+	<div class="card">
+		<div class="row" style="padding-top:0">
+			<h2 style="margin:0">tailscaled.log</h2>
+			<button class="small" id="b-logs">Refresh</button>
+		</div>
+		<pre id="logs" class="mono muted">…</pre>
+	</div>
+</section>
+
+<div id="toast"></div>
+
+<script>
+const DATA = "/data/adb/tailscale";
+const CONF = DATA + "/tailscaled.conf";
+const MOD = "/data/adb/modules/android-tailscaled";
+const TS = MOD + "/system/bin/tailscale";
+const SVC = MOD + "/system/bin/tailscaled.service";
+
+let cb = 0;
+function exec(cmd) {
+	return new Promise((resolve) => {
+		const name = "__ts_cb" + (cb++);
+		window[name] = (errno, stdout, stderr) => { delete window[name]; resolve({ errno, stdout, stderr }); };
+		try { ksu.exec(cmd, "{}", name); }
+		catch (e) { delete window[name]; resolve({ errno: -1, stdout: "", stderr: "Not running in a root manager WebUI: " + e }); }
+	});
+}
+const q = (s) => "'" + String(s).replace(/'/g, "'\\''") + "'";
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+let toastTimer;
+function toast(msg) {
+	const t = $("toast");
+	t.textContent = msg; t.classList.add("show");
+	clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 2500);
+}
+
+// Runs a command, toasts its error (if any), refreshes.
+async function run(cmd, okMsg) {
+	const r = await exec(cmd + " 2>&1");
+	if (r.errno !== 0) toast((r.stdout || r.stderr || "failed").trim().split("\n").pop());
+	else if (okMsg) toast(okMsg);
+	await refresh();
+	return r;
+}
+
+let status = null, prefs = null;
+
+async function refresh() {
+	const [svc, st, pr] = await Promise.all([
+		exec(SVC + " status"),
+		exec(TS + " status --json 2>/dev/null"),
+		exec(TS + " debug prefs 2>/dev/null"),
+	]);
+	const daemonUp = svc.errno === 0;
+	$("s-daemon").textContent = $("d-status").textContent = daemonUp ? svc.stdout.trim() : "stopped";
+	try { status = JSON.parse(st.stdout); } catch { status = null; }
+	try { prefs = JSON.parse(pr.stdout); } catch { prefs = null; }
+	renderStatus(daemonUp);
+	renderPeers();
+	renderPrefs();
+}
+
+function renderStatus(daemonUp) {
+	const s = status, state = s?.BackendState || (daemonUp ? "Unknown" : "Stopped");
+	$("s-state").textContent = state;
+	$("hdot").className = "dot " + (state === "Running" ? "ok" : daemonUp ? "warn" : "bad");
+	const self = s?.Self;
+	$("s-name").textContent = self ? (self.DNSName || self.HostName).replace(/\.$/, "") : "–";
+	const ips = s?.TailscaleIPs || [];
+	$("s-ip4").textContent = ips.find((i) => i.includes(".")) || "–";
+	$("s-ip6").textContent = ips.find((i) => i.includes(":")) || "–";
+	$("s-tailnet").textContent = s?.CurrentTailnet?.Name || "–";
+	$("s-relay").textContent = self?.Relay || "–";
+	$("s-version").textContent = s?.Version || "–";
+	const exit = Object.values(s?.Peer || {}).find((p) => p.ExitNode);
+	$("s-exit").textContent = exit ? exit.HostName : "none";
+	$("s-health").innerHTML = (s?.Health || []).map((h) => `<div class="health">⚠ ${esc(h)}</div>`).join("");
+	const needsLogin = state === "NeedsLogin" || state === "NoState";
+	$("login-card").classList.toggle("hidden", !needsLogin);
+	if (s?.AuthURL) showAuthURL(s.AuthURL);
+	$("b-up").disabled = !daemonUp || state === "Running";
+	$("b-down").disabled = state !== "Running";
+	$("b-logout").disabled = !daemonUp || needsLogin;
+}
+
+function showAuthURL(url) {
+	$("login-url").innerHTML = `Open this link to authorize the device:<br><span class="mono">${esc(url)}</span>`;
+	$("b-open").classList.remove("hidden");
+	$("b-open").onclick = () => exec("am start -a android.intent.action.VIEW -d " + q(url));
+}
+
+function fmtBytes(n) {
+	if (!n) return "0 B";
+	const u = ["B", "KB", "MB", "GB"]; let i = 0;
+	while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+	return n.toFixed(i ? 1 : 0) + " " + u[i];
+}
+
+function renderPeers() {
+	const peers = Object.values(status?.Peer || {})
+		.filter((p) => $("p-offline").checked || p.Online)
+		.sort((a, b) => (b.Online - a.Online) || a.HostName.localeCompare(b.HostName));
+	$("peers").innerHTML = peers.length ? "" : '<div class="muted">No devices</div>';
+	for (const p of peers) {
+		const ip = (p.TailscaleIPs || [])[0] || "";
+		const conn = !p.Online ? "offline" : p.CurAddr ? "direct " + p.CurAddr : p.Relay ? "relay " + p.Relay : "idle";
+		const el = document.createElement("div");
+		el.className = "peer";
+		el.innerHTML = `<span class="dot ${p.Online ? "ok" : ""}"></span>
+			<div class="info">
+				<div class="name">${esc(p.HostName)}<span class="tag">${esc(p.OS)}</span>${p.ExitNode ? '<span class="tag">exit node</span>' : ""}</div>
+				<div class="muted mono" style="font-size:12px">${esc(ip)} · ${esc(conn)}${p.Active ? ` · ↓${fmtBytes(p.RxBytes)} ↑${fmtBytes(p.TxBytes)}` : ""}</div>
+			</div>`;
+		const copy = document.createElement("button");
+		copy.className = "small"; copy.textContent = "Copy IP";
+		copy.onclick = () => navigator.clipboard.writeText(ip).then(() => toast("Copied " + ip), () => toast(ip));
+		el.appendChild(copy);
+		if (p.ExitNodeOption && p.Online) {
+			const use = document.createElement("button");
+			use.className = "small"; use.textContent = p.ExitNode ? "Stop exit" : "Use exit";
+			use.onclick = () => run(TS + " set --exit-node=" + q(p.ExitNode ? "" : ip), p.ExitNode ? "Exit node off" : "Using " + p.HostName);
+			el.appendChild(use);
+		}
+		$("peers").appendChild(el);
+	}
+}
+
+function renderPrefs() {
+	if (!prefs) return;
+	document.querySelectorAll("[data-pref]").forEach((el) => { el.checked = !!prefs[el.dataset.pref]; });
+	if (document.activeElement !== $("hostname")) $("hostname").value = prefs.Hostname || "";
+	const sel = $("exitnode");
+	const opts = Object.values(status?.Peer || {}).filter((p) => p.ExitNodeOption)
+		.sort((a, b) => a.HostName.localeCompare(b.HostName));
+	sel.innerHTML = '<option value="">None</option>' + opts.map((p) => {
+		const ip = (p.TailscaleIPs || [])[0];
+		return `<option value="${esc(ip)}" ${p.ExitNode ? "selected" : ""}>${esc(p.HostName)}${p.Online ? "" : " (offline)"}</option>`;
+	}).join("");
+}
+
+async function loadConf() {
+	const r = await exec("cat " + q(CONF));
+	const get = (k, d) => {
+		const m = r.stdout.match(new RegExp("^" + k + "=(.*)$", "m"));
+		return m ? m[1].replace(/^"(.*)"$/, "$1").replace(/\\(.)/g, "$1") : d;
+	};
+	$("c-tun").value = get("TUN", "tailscale0");
+	const pref = get("IP_RULE_PRIORITY", "9999");
+	const known = ["9999", "5270"].includes(pref);
+	$("c-pref").value = known ? pref : "custom";
+	$("c-pref-custom").value = known ? "" : pref;
+	$("c-pref-custom").classList.toggle("hidden", known);
+	$("c-port").value = get("PORT", "41641");
+	$("c-extra").value = get("EXTRA_ARGS", "");
+}
+
+async function saveConf() {
+	const pref = $("c-pref").value === "custom" ? $("c-pref-custom").value : $("c-pref").value;
+	const port = $("c-port").value;
+	if (!/^\d+$/.test(pref) || !/^\d+$/.test(port)) return toast("Port and priority must be numbers");
+	const extra = $("c-extra").value.replace(/["\\$`]/g, "\\$&");
+	// Keep any `export VAR=...` lines (e.g. TS_FORCE_NOISE_443) from the existing file.
+	const cur = await exec("cat " + q(CONF));
+	const exports = cur.stdout.split("\n").filter((l) => /^export [A-Za-z_][A-Za-z0-9_]*=/.test(l));
+	const body = [
+		"# android-tailscaled daemon settings (written by the WebUI).",
+		"PORT=" + port,
+		"TUN=" + $("c-tun").value,
+		"IP_RULE_PRIORITY=" + pref,
+		'EXTRA_ARGS="' + extra + '"',
+		...exports,
+		"",
+	].join("\n");
+	const r = await exec("printf %s " + q(body) + " > " + q(CONF));
+	if (r.errno !== 0) return toast("Could not write config: " + r.stderr);
+	await run(SVC + " restart", "Saved, tailscaled restarted");
+}
+
+async function loadLogs() {
+	const r = await exec("tail -n 300 " + q(DATA + "/tailscaled.log"));
+	$("logs").textContent = r.stdout || r.stderr || "(empty)";
+	$("logs").scrollTop = $("logs").scrollHeight;
+}
+
+async function login(extra) {
+	// `tailscale up` blocks until authorized; run it detached and poll status for the URL.
+	await exec("setsid " + TS + " up " + extra + " > " + q(DATA + "/login.log") + " 2>&1 < /dev/null &");
+	$("login-url").textContent = "Waiting for login link…";
+	for (let i = 0; i < 20; i++) {
+		await new Promise((r) => setTimeout(r, 1000));
+		await refresh();
+		if (status?.AuthURL || status?.BackendState === "Running") return;
+	}
+	const log = await exec("cat " + q(DATA + "/login.log"));
+	toast(log.stdout.trim().split("\n").pop() || "Login timed out");
+}
+
+// Wiring
+document.querySelectorAll(".tabs button").forEach((b) => b.onclick = () => {
+	document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("active", x === b));
+	document.querySelectorAll("section").forEach((s) => s.classList.toggle("hidden", s.id !== "tab-" + b.dataset.tab));
+	if (b.dataset.tab === "logs") loadLogs();
+	if (b.dataset.tab === "daemon") loadConf();
+});
+document.querySelectorAll("[data-pref]").forEach((el) => el.onchange = () =>
+	run(TS + " set --" + el.dataset.flag + "=" + el.checked, "Saved"));
+$("exitnode").onchange = () => run(TS + " set --exit-node=" + q($("exitnode").value), "Exit node updated");
+$("b-hostname").onclick = () => run(TS + " set --hostname=" + q($("hostname").value.trim()), "Hostname saved");
+$("p-offline").onchange = renderPeers;
+$("b-up").onclick = () => run("timeout 20 " + TS + " up", "Connected");
+$("b-down").onclick = () => run(TS + " down", "Disconnected");
+$("b-logout").onclick = () => confirm("Log out of this tailnet?") && run(TS + " logout", "Logged out");
+$("b-login").onclick = () => login("");
+$("b-authkey").onclick = () => {
+	const k = $("authkey").value.trim();
+	if (!k) return toast("Enter an auth key");
+	login("--auth-key=" + q(k));
+};
+$("b-start").onclick = () => run(SVC + " start");
+$("b-restart").onclick = () => run(SVC + " restart", "Restarted");
+$("b-stop").onclick = () => run(SVC + " stop", "Stopped");
+$("b-saveconf").onclick = saveConf;
+$("b-logs").onclick = loadLogs;
+$("c-pref").onchange = () => $("c-pref-custom").classList.toggle("hidden", $("c-pref").value !== "custom");
+
+refresh();
+setInterval(() => { if (!document.hidden) refresh(); }, 5000);
+</script>
+</body>
+</html>

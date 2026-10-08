@@ -1,0 +1,7 @@
+id=android-tailscaled
+name=Tailscale
+version=dev
+versionCode=0
+author=AetherMagee
+description=Upstream tailscaled in kernel TUN mode for rooted Android.
+updateJson=https://raw.githubusercontent.com/AetherMagee/android-tailscaled/main/update.json

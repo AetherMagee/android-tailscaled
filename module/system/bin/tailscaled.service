@@ -1,0 +1,78 @@
+#!/system/bin/sh
+# tailscaled.service {start|stop|restart|status|log}
+# Thin service manager; everything else is plain `tailscale`.
+
+MODDIR=/data/adb/modules/android-tailscaled
+DATA=/data/adb/tailscale
+CONF=$DATA/tailscaled.conf
+LOG=$DATA/tailscaled.log
+PIDFILE=$DATA/tailscaled.pid
+# A freshly installed/updated module sits in modules_update until reboot; prefer it.
+BIN=/data/adb/modules_update/android-tailscaled/system/bin/tailscaled
+[ -x "$BIN" ] || BIN=$MODDIR/system/bin/tailscaled
+
+pid() {
+	p=$(cat "$PIDFILE" 2>/dev/null) || return 1
+	[ -n "$p" ] && [ -d "/proc/$p" ] && grep -q tailscaled "/proc/$p/cmdline" 2>/dev/null && echo "$p"
+}
+
+set_desc() {
+	sed -i "s|^description=.*|description=[$1] Upstream tailscaled in kernel TUN mode for rooted Android.|" "$MODDIR/module.prop" 2>/dev/null
+}
+
+start() {
+	if p=$(pid); then echo "tailscaled already running (pid $p)"; return 0; fi
+	PORT=41641 TUN=tailscale0 IP_RULE_PRIORITY=9999 EXTRA_ARGS=""
+	# shellcheck source=/dev/null
+	[ -f "$CONF" ] && . "$CONF"
+
+	# Root's home for Tailscale SSH sessions (see patches/0009).
+	mkdir -p "$DATA/home"
+
+	# wireguard-go opens /dev/net/tun; Android only has /dev/tun.
+	[ -e /dev/net/tun ] || { mkdir -p /dev/net && ln -sf /dev/tun /dev/net/tun; }
+
+	[ -f "$LOG" ] && mv -f "$LOG" "$LOG.old"
+	# Android's iptables is legacy; don't let tailscaled guess nftables.
+	# tailscaled puts its rule at base+70.
+	# shellcheck disable=SC2086
+	TS_DEBUG_FIREWALL_MODE=iptables TS_IP_POLICY_PREF_BASE=$((IP_RULE_PRIORITY - 70)) \
+		nohup "$BIN" --statedir="$DATA" --port="$PORT" --tun="$TUN" $EXTRA_ARGS >"$LOG" 2>&1 &
+	echo $! >"$PIDFILE"
+	sleep 1
+	if p=$(pid); then
+		echo "tailscaled started (pid $p)"
+		set_desc "running"
+	else
+		echo "tailscaled failed to start, see $LOG"
+		tail -n 5 "$LOG"
+		set_desc "failed to start"
+		return 1
+	fi
+}
+
+stop() {
+	p=$(pid) || { echo "tailscaled not running"; set_desc "stopped"; return 0; }
+	kill "$p"
+	# tailscaled removes its routes and iptables rules on SIGTERM.
+	i=0
+	while [ -d "/proc/$p" ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
+	[ -d "/proc/$p" ] && kill -9 "$p"
+	rm -f "$PIDFILE"
+	echo "tailscaled stopped"
+	set_desc "stopped"
+}
+
+case "$1" in
+start) start ;;
+stop) stop ;;
+restart) stop && start ;;
+status)
+	if p=$(pid); then echo "running (pid $p)"; else echo "stopped"; exit 1; fi
+	;;
+log) tail -n "${2:-100}" -f "$LOG" ;;
+*)
+	echo "usage: tailscaled.service {start|stop|restart|status|log [lines]}"
+	exit 1
+	;;
+esac
