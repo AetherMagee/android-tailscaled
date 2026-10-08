@@ -1,1 +1,6 @@
-{}
+{
+  "version": "v1.104.1-r1",
+  "versionCode": 110400101,
+  "zipUrl": "https://github.com/AetherMagee/android-tailscaled/releases/download/v1.104.1-r1/android-tailscaled-v1.104.1-r1.zip",
+  "changelog": "https://raw.githubusercontent.com/AetherMagee/android-tailscaled/main/CHANGELOG.md"
+}
