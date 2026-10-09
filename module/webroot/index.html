@@ -228,6 +228,9 @@ function exec(cmd) {
 }
 const q = (s) => "'" + String(s).replace(/'/g, "'\\''") + "'";
 const $ = (id) => document.getElementById(id);
+// Machine name as shown by `tailscale status` and the admin console (renamable),
+// falling back to the hostname the device reports.
+const name = (p) => (p.DNSName || "").split(".")[0] || p.HostName;
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
 let toastTimer;
@@ -276,7 +279,7 @@ function renderStatus(daemonUp) {
 	$("s-relay").textContent = self?.Relay || "–";
 	$("s-version").textContent = s?.Version || "–";
 	const exit = Object.values(s?.Peer || {}).find((p) => p.ExitNode);
-	$("s-exit").textContent = exit ? exit.HostName : "none";
+	$("s-exit").textContent = exit ? name(exit) : "none";
 	$("s-health").innerHTML = (s?.Health || []).map((h) => `<div class="health">⚠ ${esc(h)}</div>`).join("");
 	const needsLogin = state === "NeedsLogin" || state === "NoState";
 	$("login-card").classList.toggle("hidden", !needsLogin);
@@ -302,7 +305,7 @@ function fmtBytes(n) {
 function renderPeers() {
 	const peers = Object.values(status?.Peer || {})
 		.filter((p) => $("p-offline").checked || p.Online)
-		.sort((a, b) => (b.Online - a.Online) || a.HostName.localeCompare(b.HostName));
+		.sort((a, b) => (b.Online - a.Online) || name(a).localeCompare(name(b)));
 	$("peers").innerHTML = peers.length ? "" : '<div class="muted">No devices</div>';
 	for (const p of peers) {
 		const ip = (p.TailscaleIPs || [])[0] || "";
@@ -311,7 +314,7 @@ function renderPeers() {
 		el.className = "peer";
 		el.innerHTML = `<span class="dot ${p.Online ? "ok" : ""}"></span>
 			<div class="info">
-				<div class="name">${esc(p.HostName)}<span class="tag">${esc(p.OS)}</span>${p.ExitNode ? '<span class="tag">exit node</span>' : ""}</div>
+				<div class="name">${esc(name(p))}<span class="tag">${esc(p.OS)}</span>${p.ExitNode ? '<span class="tag">exit node</span>' : ""}</div>
 				<div class="muted mono" style="font-size:12px">${esc(ip)} · ${esc(conn)}${p.Active ? ` · ↓${fmtBytes(p.RxBytes)} ↑${fmtBytes(p.TxBytes)}` : ""}</div>
 			</div>`;
 		const copy = document.createElement("button");
@@ -321,7 +324,7 @@ function renderPeers() {
 		if (p.ExitNodeOption && p.Online) {
 			const use = document.createElement("button");
 			use.className = "small"; use.textContent = p.ExitNode ? "Stop exit" : "Use exit";
-			use.onclick = () => run(TS + " set --exit-node=" + q(p.ExitNode ? "" : ip), p.ExitNode ? "Exit node off" : "Using " + p.HostName);
+			use.onclick = () => run(TS + " set --exit-node=" + q(p.ExitNode ? "" : ip), p.ExitNode ? "Exit node off" : "Using " + name(p));
 			el.appendChild(use);
 		}
 		$("peers").appendChild(el);
@@ -334,10 +337,10 @@ function renderPrefs() {
 	if (document.activeElement !== $("hostname")) $("hostname").value = prefs.Hostname || "";
 	const sel = $("exitnode");
 	const opts = Object.values(status?.Peer || {}).filter((p) => p.ExitNodeOption)
-		.sort((a, b) => a.HostName.localeCompare(b.HostName));
+		.sort((a, b) => name(a).localeCompare(name(b)));
 	sel.innerHTML = '<option value="">None</option>' + opts.map((p) => {
 		const ip = (p.TailscaleIPs || [])[0];
-		return `<option value="${esc(ip)}" ${p.ExitNode ? "selected" : ""}>${esc(p.HostName)}${p.Online ? "" : " (offline)"}</option>`;
+		return `<option value="${esc(ip)}" ${p.ExitNode ? "selected" : ""}>${esc(name(p))}${p.Online ? "" : " (offline)"}</option>`;
 	}).join("");
 }
 
