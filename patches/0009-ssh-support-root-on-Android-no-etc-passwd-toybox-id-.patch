@@ -12,13 +12,13 @@ Subject: [PATCH] ssh: support root on Android (no /etc/passwd, toybox id,
  4 files changed, 30 insertions(+), 1 deletion(-)
 
 diff --git a/ssh/tailssh/c2n.go b/ssh/tailssh/c2n.go
-index f458df2..5479d24 100644
+index 3a1d897..21bb112 100644
 --- a/ssh/tailssh/c2n.go
 +++ b/ssh/tailssh/c2n.go
-@@ -17,12 +17,20 @@
- 	"tailscale.com/ipn/ipnlocal"
+@@ -18,12 +18,20 @@
  	"tailscale.com/tailcfg"
  	"tailscale.com/util/lineiter"
+ 	"tailscale.com/util/set"
 +	"tailscale.com/version/distro"
  )
  
@@ -37,13 +37,13 @@ index f458df2..5479d24 100644
  	var req tailcfg.C2NSSHUsernamesRequest
  	if r.Method == "POST" {
 diff --git a/ssh/tailssh/user_unix.go b/ssh/tailssh/user_unix.go
-index eb19418..8d50ab5 100644
+index d482b09..887de07 100644
 --- a/ssh/tailssh/user_unix.go
 +++ b/ssh/tailssh/user_unix.go
-@@ -92,6 +92,9 @@ func defaultPathForUser(u *user.User) string {
+@@ -102,6 +102,9 @@ func defaultPathForUser(u *userMeta) string {
  		return "/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games"
  	case distro.NixOS:
- 		return defaultPathForUserOnNixOS(u)
+ 		return defaultPathForUserOnNixOS(&u.User)
 +	case distro.Android:
 +		// Same as Android's own shell PATH.
 +		return "/product/bin:/apex/com.android.runtime/bin:/apex/com.android.art/bin:/system_ext/bin:/system/bin:/system/xbin:/odm/bin:/vendor/bin:/vendor/xbin"
@@ -51,23 +51,23 @@ index eb19418..8d50ab5 100644
  	if isRoot {
  		return "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 diff --git a/util/osuser/group_ids.go b/util/osuser/group_ids.go
-index 34d15c9..23ba6a2 100644
+index 4d43f2d..72b718c 100644
 --- a/util/osuser/group_ids.go
 +++ b/util/osuser/group_ids.go
-@@ -46,7 +46,7 @@ func getGroupIdsWithId(usernameOrUID string) ([]string, error) {
+@@ -52,7 +52,7 @@ func getGroupIdsWithId(usernameOrUID string) ([]string, error) {
  	defer cancel()
  
- 	cmd := exec.CommandContext(ctx, "id", "-Gz", usernameOrUID)
+ 	idArgs := []string{"-Gz", usernameOrUID}
 -	if runtime.GOOS == "freebsd" {
 +	if runtime.GOOS == "freebsd" || distro.Get() == distro.Android { // toybox id has no -z
- 		cmd = exec.CommandContext(ctx, "id", "-G", usernameOrUID)
+ 		idArgs = []string{"-G", usernameOrUID}
  	}
- 
+ 	out, err := execId(ctx, idArgs...)
 diff --git a/util/osuser/user.go b/util/osuser/user.go
-index 3fdbfbb..4cdfaab 100644
+index fccaae4..04c92bb 100644
 --- a/util/osuser/user.go
 +++ b/util/osuser/user.go
-@@ -50,6 +50,9 @@ func LookupByUsername(username string) (*user.User, error) {
+@@ -51,6 +51,9 @@ func LookupByUsername(username string) (*user.User, error) {
  	return u, err
  }
  
@@ -77,7 +77,7 @@ index 3fdbfbb..4cdfaab 100644
  // lookupStd is either user.Lookup or user.LookupId.
  type lookupStd func(string) (*user.User, error)
  
-@@ -106,6 +109,21 @@ func lookup(usernameOrUID string, std lookupStd, wantShell bool) (*user.User, st
+@@ -111,6 +114,21 @@ func lookup(usernameOrUID string, std lookupStd, wantShell bool) (*user.User, st
  		}, "/bin/rc", nil
  	}
  
