@@ -23,6 +23,8 @@ Updates arrive through the root manager's built-in module updater.
 | `/data/adb/tailscale/tailscaled.conf` | daemon settings (port, TUN/userspace, rule priority, extra flags) |
 | `/data/adb/tailscale/` | node state, socket and logs; kept on uninstall |
 
+On KernelSU, `tailscale` and `tailscaled.service` are on PATH only with a mounting metamodule (e.g. meta-overlayfs). Without one, the daemon, WebUI and Action button still work; call the CLI by full path: `/data/adb/modules/android-tailscaled/system/bin/tailscale`.
+
 Toggling the module in the root manager stops/starts the daemon immediately. A module that was disabled at boot needs a reboot (or the WebUI's Start button) after re-enabling.
 
 ### Routing priority
