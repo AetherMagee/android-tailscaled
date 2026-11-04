@@ -25,6 +25,8 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # changelog: commits since the previous release tag
 
       - name: Resolve version
         id: v
@@ -63,8 +65,16 @@ jobs:
         if: steps.v.outputs.skip != 'true'
         run: |
           . dist/build.env
-          gh release create "$VERSION" "$ZIP" --title "$VERSION" \
-            --notes "Upstream tailscale [$TAG](https://github.com/tailscale/tailscale/releases/tag/$TAG) + patches/ (module revision $(cat REVISION))."
+          # Notes: upstream bump (if any) + feat/fix commit subjects since the previous release.
+          prev=$(gh release view --json tagName --jq .tagName 2>/dev/null || true)
+          {
+            [ "${prev%-r*}" = "$TAG" ] || echo "- Tailscale [$TAG](https://github.com/tailscale/tailscale/releases/tag/$TAG)"
+            [ -z "$prev" ] || git log --reverse --format=%s "$prev..HEAD" | sed -nE 's/^(feat|fix)(\([^)]*\))?!?: (.)/- \u\3/p'
+          } >notes.md
+          [ -s notes.md ] || echo "- Rebuild, no user-facing changes" >notes.md
+          { printf '# Changelog\n\n## %s\n\n' "$VERSION"; cat notes.md; echo; tail -n +3 CHANGELOG.md; } >CHANGELOG.new
+          mv CHANGELOG.new CHANGELOG.md
+          gh release create "$VERSION" "$ZIP" --title "$VERSION" --notes-file notes.md
           cat >update.json <<EOF
           {
             "version": "$VERSION",
@@ -75,6 +85,6 @@ jobs:
           EOF
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add update.json
+          git add update.json CHANGELOG.md
           git commit -m "chore: release $VERSION"
           for i in 1 2 3; do git pull --rebase -q && git push && break; sleep 5; done
