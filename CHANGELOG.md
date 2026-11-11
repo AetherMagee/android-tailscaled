@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.104.6-r2
+
+- Tailscale [v1.104.6](https://github.com/tailscale/tailscale/releases/tag/v1.104.6)
+- Show offline peers by default
+
 ## v1.104.5-r2
 
 - Tailscale [v1.104.5](https://github.com/tailscale/tailscale/releases/tag/v1.104.5)
