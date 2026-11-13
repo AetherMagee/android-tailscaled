@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.104.7-r2
+
+- Tailscale [v1.104.7](https://github.com/tailscale/tailscale/releases/tag/v1.104.7)
+
 ## v1.104.6-r2
 
 - Tailscale [v1.104.6](https://github.com/tailscale/tailscale/releases/tag/v1.104.6)
